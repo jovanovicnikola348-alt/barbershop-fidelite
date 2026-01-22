@@ -11,13 +11,16 @@ function Login() {
   const [isLogin, setIsLogin] = useState(true)
   const navigate = useNavigate()
 
+  // URL du backend en ligne
+  const API_URL = 'https://barbershop-api-n73d.onrender.com'
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     
     try {
       if (isLogin) {
         // Connexion
-        const response = await axios.post('/api/login', { email, password })
+        const response = await axios.post(`${API_URL}/api/login`, { email, password })
         
         localStorage.setItem('token', response.data.token)
         localStorage.setItem('user', JSON.stringify(response.data.user))
@@ -34,7 +37,7 @@ function Login() {
         
       } else {
         // Inscription
-        await axios.post('/api/register', { email, password, username })
+        await axios.post(`${API_URL}/api/register`, { email, password, username })
         toast.success('Compte créé ! Connectez-vous')
         setIsLogin(true)
         setEmail('')
@@ -42,7 +45,7 @@ function Login() {
       }
       
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Erreur')
+      toast.error(error.response?.data?.error || 'Erreur de connexion')
     }
   }
 
