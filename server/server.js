@@ -2,157 +2,29 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Sequelize, DataTypes } = require('sequelize');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://barbershop-fidelite.vercel.app',
+  origin: '*', // Autorise toutes les origines pour le moment
   credentials: true
 }));
 app.use(express.json());
 
-// Connexion à PostgreSQL
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',
-  logging: false,
-  dialectOptions: {
-    ssl: {
-      require: true,
-      rejectUnauthorized: false
-    }
-  }
-});
+// Stockage en mémoire (temporaire)
+const users = [];
+const visits = [];
 
-// Modèles
-const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  email: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true,
-    validate: {
-      isEmail: true
-    }
-  },
-  password: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  username: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  role: {
-    type: DataTypes.ENUM('client', 'admin'),
-    defaultValue: 'client'
-  },
-  isActive: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  }
-}, {
-  tableName: 'users',
-  timestamps: true
-});
-
-const Visit = sequelize.define('Visit', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  notes: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  }
-}, {
-  tableName: 'visits',
-  timestamps: true
-});
-
-const Reward = sequelize.define('Reward', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  name: {
-    type: DataTypes.STRING,
-    defaultValue: 'Coupe gratuite'
-  },
-  description: {
-    type: DataTypes.TEXT
-  },
-  requiredVisits: {
-    type: DataTypes.INTEGER,
-    defaultValue: 5
-  }
-}, {
-  tableName: 'rewards',
-  timestamps: true
-});
-
-// Relations
-User.hasMany(Visit, { foreignKey: 'userId' });
-Visit.belongsTo(User, { foreignKey: 'userId' });
-
-User.hasMany(Reward, { foreignKey: 'userId' });
-Reward.belongsTo(User, { foreignKey: 'userId' });
-
-// Initialisation
-async function initializeDatabase() {
-  try {
-    await sequelize.authenticate();
-    console.log('✅ PostgreSQL connecté avec succès !');
-    
-    await sequelize.sync({ force: false });
-    console.log('✅ Tables synchronisées');
-    
-    // Créer admin s'il n'existe pas
-    const adminExists = await User.findOne({ where: { email: 'admin@barbershop.com' } });
-    if (!adminExists) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
-      await User.create({
-        email: 'admin@barbershop.com',
-        password: hashedPassword,
-        username: 'Admin',
-        role: 'admin'
-      });
-      console.log('👑 Admin créé: admin@barbershop.com / admin123');
-    }
-    
-    // Créer récompense par défaut
-    const rewardExists = await Reward.findOne();
-    if (!rewardExists) {
-      await Reward.create({
-        name: 'Coupe gratuite',
-        description: 'Une coupe offerte après 5 visites',
-        requiredVisits: 5
-      });
-      console.log('🎁 Récompense par défaut créée');
-    }
-    
-  } catch (error) {
-    console.error('❌ Erreur initialisation:', error.message);
-  }
-}
-
-// ==================== ROUTES ====================
-
-// Test
+// Route test
 app.get('/api/test', (req, res) => {
   res.json({
     success: true,
     message: '✅ Serveur Barbershop Fidélité fonctionnel !',
-    database: 'PostgreSQL',
-    status: 'online'
+    usersCount: users.length,
+    visitsCount: visits.length,
+    version: '1.0.0-simple'
   });
 });
 
@@ -161,32 +33,45 @@ app.post('/api/register', async (req, res) => {
   try {
     const { email, password, username } = req.body;
     
-    // Validation
+    console.log('📝 Inscription demandée:', email);
+    
+    // Validation simple
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email et mot de passe requis' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email et mot de passe requis' 
+      });
     }
     
     // Vérifier si email existe
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+    if (users.find(u => u.email === email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cet email est déjà utilisé' 
+      });
     }
     
     // Hasher mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
     
     // Créer utilisateur
-    const user = await User.create({
+    const user = {
+      id: 'user_' + Date.now(),
       email,
       password: hashedPassword,
       username: username || email.split('@')[0],
-      role: 'client'
-    });
+      role: 'client',
+      isActive: true,
+      createdAt: new Date()
+    };
+    
+    users.push(user);
+    console.log('✅ Utilisateur créé:', user.email);
     
     // Créer token QR
     const qrToken = jwt.sign(
       { userId: user.id, type: 'client_qr' },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'default-secret-key-123456',
       { expiresIn: '365d' }
     );
     
@@ -198,8 +83,11 @@ app.post('/api/register', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur inscription:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur inscription:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur lors de la création du compte' 
+    });
   }
 });
 
@@ -208,49 +96,59 @@ app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
+    console.log('🔑 Connexion demandée:', email);
+    
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email et mot de passe requis' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email et mot de passe requis' 
+      });
     }
     
     // Trouver utilisateur
-    const user = await User.findOne({ 
-      where: { email, isActive: true } 
-    });
+    const user = users.find(u => u.email === email && u.isActive);
     
     if (!user) {
-      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Email ou mot de passe incorrect' 
+      });
     }
     
     // Vérifier mot de passe
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
-      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Email ou mot de passe incorrect' 
+      });
     }
     
-    // Token JWT
+    // Compter visites
+    const userVisits = visits.filter(v => v.userId === user.id);
+    
+    // Tokens
     const token = jwt.sign(
       { 
         id: user.id, 
         email: user.email, 
         role: user.role 
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'default-secret-key-123456',
       { expiresIn: '7d' }
     );
     
-    // Token QR (valide 1 an)
     const qrToken = jwt.sign(
       { 
         userId: user.id, 
         type: 'client_qr',
         timestamp: Date.now() 
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'default-secret-key-123456',
       { expiresIn: '365d' }
     );
     
-    // Compter visites
-    const visitCount = await Visit.count({ where: { userId: user.id } });
+    console.log('✅ Connexion réussie pour:', user.email);
     
     res.json({
       success: true,
@@ -261,13 +159,16 @@ app.post('/api/login', async (req, res) => {
         email: user.email,
         username: user.username,
         role: user.role,
-        visits: visitCount
+        visits: userVisits.length
       }
     });
     
   } catch (error) {
-    console.error('Erreur connexion:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur connexion:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur de connexion au serveur' 
+    });
   }
 });
 
@@ -276,43 +177,57 @@ app.post('/api/scan', async (req, res) => {
   try {
     const { qrToken } = req.body;
     
+    console.log('📱 Scan demandé');
+    
     if (!qrToken) {
-      return res.status(400).json({ error: 'QR Code requis' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'QR Code requis' 
+      });
     }
     
-    // Vérifier token
-    let decoded;
+    // Vérifier token (simplifié)
+    let userId;
     try {
-      decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+      const decoded = jwt.verify(qrToken, process.env.JWT_SECRET || 'default-secret-key-123456');
+      userId = decoded.userId;
     } catch (err) {
-      return res.status(400).json({ error: 'QR Code invalide ou expiré' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'QR Code invalide ou expiré' 
+      });
     }
     
-    if (decoded.type !== 'client_qr') {
-      return res.status(400).json({ error: 'QR Code invalide' });
-    }
-    
-    const userId = decoded.userId;
-    
-    // Vérifier utilisateur
-    const user = await User.findByPk(userId);
-    if (!user || !user.isActive) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    // Trouver utilisateur
+    const user = users.find(u => u.id === userId && u.isActive);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Utilisateur non trouvé' 
+      });
     }
     
     // Ajouter visite
-    await Visit.create({ userId });
+    const visit = {
+      id: 'visit_' + Date.now(),
+      userId,
+      date: new Date(),
+      notes: 'Visite enregistrée via scan'
+    };
+    
+    visits.push(visit);
     
     // Compter visites
-    const visitCount = await Visit.count({ where: { userId } });
+    const userVisits = visits.filter(v => v.userId === userId);
+    const visitCount = userVisits.length;
     
     // Vérifier récompense
-    const reward = await Reward.findOne();
     let rewardMessage = null;
-    
-    if (reward && visitCount > 0 && visitCount % reward.requiredVisits === 0) {
-      rewardMessage = `🎉 Félicitations ! Vous avez gagné : ${reward.name}`;
+    if (visitCount > 0 && visitCount % 5 === 0) {
+      rewardMessage = `🎉 Félicitations ! Vous avez gagné : Coupe gratuite`;
     }
+    
+    console.log(`✅ Visite enregistrée pour ${user.email}, total: ${visitCount}`);
     
     res.json({
       success: true,
@@ -320,57 +235,67 @@ app.post('/api/scan', async (req, res) => {
       visits: visitCount,
       reward: rewardMessage,
       client: {
-        name: user.username || user.email.split('@')[0],
+        name: user.username,
         email: user.email
       }
     });
     
   } catch (error) {
-    console.error('Erreur scan:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur scan:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur lors du scan' 
+    });
   }
 });
 
-// Dashboard utilisateur
+// Dashboard
 app.get('/api/dashboard', async (req, res) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
     
     if (!token) {
-      return res.status(401).json({ error: 'Non autorisé' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Non autorisé' 
+      });
     }
     
     // Vérifier token
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key-123456');
     } catch (err) {
-      return res.status(401).json({ error: 'Session expirée' });
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Session expirée' 
+      });
     }
     
     const userId = decoded.id;
     
-    // Récupérer utilisateur
-    const user = await User.findByPk(userId);
+    // Trouver utilisateur
+    const user = users.find(u => u.id === userId);
     if (!user) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Utilisateur non trouvé' 
+      });
     }
     
-    // Visites
-    const visits = await Visit.findAll({
-      where: { userId },
-      order: [['createdAt', 'DESC']],
-      limit: 10
-    });
+    // Récupérer visites
+    const userVisits = visits
+      .filter(v => v.userId === userId)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 10);
     
-    const totalVisits = visits.length;
-    const reward = await Reward.findOne();
+    const totalVisits = userVisits.length;
     
     const progress = {
-      current: totalVisits % (reward?.requiredVisits || 5),
-      total: reward?.requiredVisits || 5,
-      nextReward: reward?.name || 'Cadeau',
-      percentage: Math.min(100, (totalVisits % (reward?.requiredVisits || 5)) / (reward?.requiredVisits || 5) * 100)
+      current: totalVisits % 5,
+      total: 5,
+      nextReward: 'Coupe gratuite',
+      percentage: Math.min(100, (totalVisits % 5) / 5 * 100)
     };
     
     res.json({
@@ -383,71 +308,113 @@ app.get('/api/dashboard', async (req, res) => {
       },
       totalVisits,
       progress,
-      visits: visits.map(v => ({
+      visits: userVisits.map(v => ({
         id: v.id,
-        date: v.createdAt,
+        date: v.date,
         notes: v.notes
       }))
     });
     
   } catch (error) {
-    console.error('Erreur dashboard:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur dashboard:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur de chargement' 
+    });
   }
 });
 
 // Liste utilisateurs (admin)
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/admin/users', (req, res) => {
   try {
-    const users = await User.findAll({
-      include: [{
-        model: Visit,
-        attributes: ['id', 'createdAt']
-      }],
-      order: [['createdAt', 'DESC']]
+    const usersWithVisits = users.map(user => {
+      const userVisits = visits.filter(v => v.userId === user.id);
+      return {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        isActive: user.isActive,
+        visitsCount: userVisits.length,
+        lastVisit: userVisits[0]?.date || null,
+        createdAt: user.createdAt
+      };
     });
     
     const stats = {
-      totalUsers: await User.count(),
-      totalVisits: await Visit.count(),
-      activeUsers: await User.count({ where: { isActive: true } }),
-      rewardsGiven: await Reward.count()
+      totalUsers: users.length,
+      totalVisits: visits.length,
+      activeUsers: users.filter(u => u.isActive).length,
+      rewardsGiven: Math.floor(visits.length / 5)
     };
     
     res.json({
       success: true,
-      users: users.map(u => ({
-        id: u.id,
-        email: u.email,
-        username: u.username,
-        role: u.role,
-        isActive: u.isActive,
-        visitsCount: u.Visits.length,
-        lastVisit: u.Visits[0]?.createdAt || null
-      })),
+      users: usersWithVisits,
       stats
     });
     
   } catch (error) {
-    console.error('Erreur admin users:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur admin users:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur serveur' 
+    });
   }
 });
+
+// Créer admin par défaut
+async function initializeData() {
+  // Admin
+  const adminExists = users.find(u => u.email === 'admin@barbershop.com');
+  if (!adminExists) {
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+    users.push({
+      id: 'admin_001',
+      email: 'admin@barbershop.com',
+      password: hashedPassword,
+      username: 'Admin',
+      role: 'admin',
+      isActive: true,
+      createdAt: new Date()
+    });
+    console.log('👑 Admin créé: admin@barbershop.com / admin123');
+  }
+  
+  // Client test
+  const clientExists = users.find(u => u.email === 'client@test.com');
+  if (!clientExists) {
+    const hashedPassword = await bcrypt.hash('test123', 10);
+    users.push({
+      id: 'client_test',
+      email: 'client@test.com',
+      password: hashedPassword,
+      username: 'ClientTest',
+      role: 'client',
+      isActive: true,
+      createdAt: new Date()
+    });
+    console.log('👤 Client test créé: client@test.com / test123');
+  }
+  
+  console.log(`📊 ${users.length} utilisateurs chargés`);
+}
 
 // Démarrer serveur
 const PORT = process.env.PORT || 10000;
 
-initializeDatabase().then(() => {
+initializeData().then(() => {
   app.listen(PORT, () => {
     console.log('\n' + '='.repeat(60));
-    console.log('🚀 SERVEUR BARBERSHOP FIDÉLITÉ - VERSION RÉELLE');
+    console.log('🚀 SERVEUR BARBERSHOP FIDÉLITÉ - SIMPLIFIÉ');
     console.log('='.repeat(60));
     console.log(`📍 Port: ${PORT}`);
-    console.log(`🔗 URL: https://barbershop-api-n73d.onrender.com`);
+    console.log(`🔗 Test: http://localhost:${PORT}/api/test`);
     console.log(`👑 Admin: admin@barbershop.com / admin123`);
-    console.log(`💾 Base: PostgreSQL (Supabase)`);
+    console.log(`👤 Client: client@test.com / test123`);
     console.log('='.repeat(60));
+    console.log('\n📡 En attente de requêtes...\n');
   });
 }).catch(error => {
-  console.error('❌ Impossible de démarrer le serveur:', error);
+  console.error('❌ Erreur initialisation:', error);
 });
