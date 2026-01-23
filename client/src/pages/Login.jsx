@@ -9,45 +9,88 @@ function Login() {
   const [password, setPassword] = useState('admin123')
   const [username, setUsername] = useState('')
   const [isLogin, setIsLogin] = useState(true)
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   // URL du backend en ligne
-  const API_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000' 
-  : 'https://barbershop-api-n73d.onrender.com'
+  const API_URL = 'https://barbershop-api-n73d.onrender.com'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setLoading(true)
     
     try {
       if (isLogin) {
-        // Connexion
-        const response = await axios.post(`${API_URL}/api/login`, { email, password })
+        // CONNEXION - Version réelle
+        console.log('Tentative de connexion avec:', email)
         
-        localStorage.setItem('token', response.data.token)
-        localStorage.setItem('user', JSON.stringify(response.data.user))
-        localStorage.setItem('qrToken', response.data.qrToken)
+        const response = await axios.post(`${API_URL}/api/login`, { 
+          email, 
+          password 
+        }, {
+          timeout: 30000 // 30 secondes timeout
+        })
         
-        toast.success('Connexion réussie !')
+        console.log('Réponse serveur:', response.data)
         
-        // Redirection selon rôle
-        if (response.data.user.role === 'admin') {
-          navigate('/admin')
+        if (response.data.success) {
+          localStorage.setItem('token', response.data.token)
+          localStorage.setItem('user', JSON.stringify(response.data.user))
+          localStorage.setItem('qrToken', response.data.qrToken)
+          
+          toast.success('Connexion réussie !')
+          
+          // Redirection selon rôle
+          if (response.data.user.role === 'admin') {
+            navigate('/admin')
+          } else {
+            navigate('/dashboard')
+          }
         } else {
-          navigate('/dashboard')
+          toast.error(response.data.error || 'Email ou mot de passe incorrect')
         }
         
       } else {
-        // Inscription
-        await axios.post(`${API_URL}/api/register`, { email, password, username })
-        toast.success('Compte créé ! Connectez-vous')
-        setIsLogin(true)
-        setEmail('')
-        setPassword('')
+        // INSCRIPTION - Version réelle
+        console.log('Tentative d\'inscription:', email)
+        
+        const response = await axios.post(`${API_URL}/api/register`, { 
+          email, 
+          password, 
+          username 
+        }, {
+          timeout: 30000
+        })
+        
+        console.log('Réponse inscription:', response.data)
+        
+        if (response.data.success) {
+          toast.success('Compte créé avec succès ! Vous pouvez maintenant vous connecter')
+          setIsLogin(true) // Passe en mode connexion
+          setEmail('')
+          setPassword('')
+          setUsername('')
+        } else {
+          toast.error(response.data.error || "Erreur lors de l'inscription")
+        }
       }
       
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Erreur de connexion')
+      console.error('ERREUR DÉTAILLÉE:', error)
+      
+      if (error.code === 'ECONNABORTED') {
+        toast.error('Le serveur met trop de temps à répondre. Réessayez dans 30 secondes.')
+      } else if (error.response) {
+        // Le serveur a répondu avec un code d'erreur
+        toast.error(error.response.data.error || 'Erreur de connexion')
+      } else if (error.request) {
+        // La requête a été faite mais pas de réponse
+        toast.error('Serveur injoignable. Vérifiez votre connexion ou réessayez plus tard.')
+      } else {
+        toast.error('Une erreur est survenue')
+      }
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -86,6 +129,7 @@ function Login() {
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-transparent"
                     placeholder="Votre nom"
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -104,6 +148,7 @@ function Login() {
                   className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-transparent"
                   placeholder="votre@email.com"
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -121,15 +166,32 @@ function Login() {
                   className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-transparent"
                   placeholder="••••••••"
                   required
+                  minLength={6}
+                  disabled={loading}
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 px-4 bg-white text-purple-700 font-semibold rounded-xl hover:bg-white/90 transition-all duration-200 shadow-lg hover:shadow-xl"
+              disabled={loading}
+              className={`w-full py-3 px-4 font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl ${
+                loading 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                  : 'bg-white text-purple-700 hover:bg-white/90'
+              }`}
             >
-              {isLogin ? 'Se connecter' : 'Créer mon compte'}
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-purple-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {isLogin ? 'Connexion en cours...' : 'Création en cours...'}
+                </span>
+              ) : (
+                isLogin ? 'Se connecter' : 'Créer mon compte'
+              )}
             </button>
           </form>
 
@@ -137,7 +199,8 @@ function Login() {
           <div className="mt-6 text-center">
             <button
               onClick={() => setIsLogin(!isLogin)}
-              className="text-white/80 hover:text-white underline transition"
+              disabled={loading}
+              className="text-white/80 hover:text-white underline transition disabled:opacity-50"
             >
               {isLogin 
                 ? 'Pas encore de compte ? Créer un compte' 
@@ -154,10 +217,18 @@ function Login() {
                 setPassword('admin123')
                 toast.success('Identifiants admin pré-remplis')
               }}
-              className="w-full text-center text-white/60 hover:text-white text-sm transition"
+              disabled={loading}
+              className="w-full text-center text-white/60 hover:text-white text-sm transition disabled:opacity-50"
             >
               Accès administrateur
             </button>
+          </div>
+
+          {/* Debug info */}
+          <div className="mt-6 text-center">
+            <p className="text-white/40 text-xs">
+              Backend: {API_URL}
+            </p>
           </div>
         </div>
       </div>

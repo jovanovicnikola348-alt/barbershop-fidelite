@@ -1,42 +1,67 @@
 import React, { useState, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { Scissors, Gift, History, LogOut, Trophy, Calendar, User, Sparkles, ChevronRight } from 'lucide-react'
-import axios from 'axios'
+import { Scissors, Gift, History, LogOut, Trophy, Calendar, User, Sparkles, ChevronRight, RefreshCw } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
+import api from '../utils/api'
 
 function Dashboard() {
   const [user, setUser] = useState(null)
   const [visits, setVisits] = useState([])
   const [totalVisits, setTotalVisits] = useState(0)
   const [qrToken, setQrToken] = useState('')
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user')
-    const storedQrToken = localStorage.getItem('qrToken')
-    
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
-    }
-    
-    if (storedQrToken) {
-      setQrToken(storedQrToken)
-    }
-    
-    // Simuler des données
-    setTotalVisits(3)
-    setVisits([
-      { id: 1, date: '2024-01-15', type: 'Coupe + Barbe' },
-      { id: 2, date: '2024-01-08', type: 'Coupe simple' },
-      { id: 3, date: '2024-01-02', type: 'Coupe + Shampooing' }
-    ])
+    fetchDashboardData()
   }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      const response = await api.get('/api/dashboard')
+      
+      if (response.data.success) {
+        setUser(response.data.user)
+        setVisits(response.data.visits || [])
+        setTotalVisits(response.data.totalVisits || 0)
+        
+        const storedQrToken = localStorage.getItem('qrToken')
+        if (storedQrToken) {
+          setQrToken(storedQrToken)
+        }
+      } else {
+        toast.error('Erreur de chargement des données')
+      }
+    } catch (error) {
+      console.error('Erreur dashboard:', error)
+      if (error.response?.status === 401) {
+        toast.error('Session expirée, veuillez vous reconnecter')
+        navigate('/login')
+      } else {
+        toast.error('Impossible de charger les données')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.clear()
     toast.success('Déconnexion réussie')
     navigate('/login')
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Chargement de votre espace...</p>
+        </div>
+      </div>
+    )
   }
 
   const progress = {
@@ -59,8 +84,15 @@ function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-900">Mon Espace Fidélité</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={fetchDashboardData}
+                className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                title="Rafraîchir"
+              >
+                <RefreshCw className="w-5 h-5" />
+              </button>
               <div className="text-right">
-                <p className="font-medium text-gray-900">{user?.email || 'client@test.com'}</p>
+                <p className="font-medium text-gray-900">{user?.email || 'Chargement...'}</p>
                 <p className="text-sm text-gray-500">Client</p>
               </div>
               <button
@@ -119,7 +151,7 @@ function Dashboard() {
                   <p className="text-sm text-gray-600">Visites totales</p>
                 </div>
                 <div className="text-center p-4 bg-gray-50 rounded-xl">
-                  <p className="text-3xl font-bold text-gray-900">1</p>
+                  <p className="text-3xl font-bold text-gray-900">{Math.floor(totalVisits / 5)}</p>
                   <p className="text-sm text-gray-600">Cadeaux gagnés</p>
                 </div>
                 <div className="text-center p-4 bg-gray-50 rounded-xl">
@@ -139,22 +171,39 @@ function Dashboard() {
                 <span className="text-sm text-gray-500">{visits.length} visite(s)</span>
               </div>
 
-              <div className="space-y-4">
-                {visits.map((visit) => (
-                  <div key={visit.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                    <div className="flex items-center space-x-4">
-                      <div className="p-2 bg-purple-100 rounded-lg">
-                        <Calendar className="w-5 h-5 text-purple-600" />
+              {visits.length > 0 ? (
+                <div className="space-y-4">
+                  {visits.map((visit) => (
+                    <div key={visit.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                      <div className="flex items-center space-x-4">
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <Calendar className="w-5 h-5 text-purple-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Visite #{visit.id.slice(0, 8)}</p>
+                          <p className="text-sm text-gray-500">
+                            {new Date(visit.date).toLocaleDateString('fr-FR', {
+                              weekday: 'long',
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{visit.type}</p>
-                        <p className="text-sm text-gray-500">{visit.date}</p>
-                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-400" />
                     </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500">Aucune visite enregistrée</p>
+                  <p className="text-sm text-gray-400 mt-2">Présentez votre QR Code lors de votre prochaine visite</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -176,7 +225,7 @@ function Dashboard() {
                     />
                   ) : (
                     <div className="w-48 h-48 bg-gray-200 rounded-lg flex items-center justify-center">
-                      <p className="text-gray-500">Chargement...</p>
+                      <p className="text-gray-500">Chargement QR Code...</p>
                     </div>
                   )}
                 </div>
