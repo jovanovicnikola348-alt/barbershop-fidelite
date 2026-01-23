@@ -12,7 +12,9 @@ function Login() {
   const navigate = useNavigate()
 
   // URL du backend en ligne
-  const API_URL = 'https://barbershop-api-n73d.onrender.com'
+  const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000' 
+  : 'https://barbershop-api-n73d.onrender.com'
 
   const handleSubmit = async (e) => {
     e.preventDefault()

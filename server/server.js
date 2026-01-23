@@ -159,7 +159,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // ============ DÉMARRAGE ============
-const PORT = 5000;
+const PORT = 10000;
 app.listen(PORT, () => {
   console.log('\n' + '='.repeat(60));
   console.log('🚀 SERVEUR BARBERSHOP FIDÉLITÉ DÉMARRÉ');
